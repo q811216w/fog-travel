@@ -29,6 +29,12 @@ export async function init(c) {
   if (!window.supabase) return;
   await cloud.init(onAuth);
   if (cloud.user) onAuth(cloud.user, true);
+  else {
+    const q = location.search;
+    if (/[?&]signup/.test(q)) openAuth('signup');
+    else if (/[?&]login/.test(q)) openAuth('signin');
+    else if (!S().authSkipped) openAuth('signup');
+  }
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && cloud.user) tick(true); });
 }
 
@@ -39,6 +45,7 @@ async function onAuth(u, initial) {
     fLive = []; fRecords = []; fStamps = new Map(); fStampMax = 0;
     drawFriendLayers();
     if (ctx.currentTab() === 'friends') render();
+    ctx.onAccountChange && ctx.onAccountChange();
     return;
   }
   try {
@@ -49,6 +56,8 @@ async function onAuth(u, initial) {
   const cs = cloudState();
   if (cs.uid !== u.id) { cs.uid = u.id; cs.stampsSynced = 0; cs.pulled = false; ctx.saveSettings(); }
   if (!initial) ctx.toast(`已登入：${me ? me.display_name : ''}`);
+  closeAuth();
+  ctx.onAccountChange && ctx.onAccountChange();
   await fullSync();
   timer = setInterval(() => tick(false), 45000);
   if (ctx.currentTab() === 'friends') render();
@@ -257,7 +266,15 @@ export function render() {
   const body = ctx.$('sheetBody');
   ctx.$('sheetTitle').textContent = '好友';
   if (!window.supabase) { body.innerHTML = '<p class="muted">好友功能載入失敗，請重新整理。</p>'; return; }
-  if (!cloud.user) return renderAuth(body);
+  if (!cloud.user) {
+    body.innerHTML = `<div class="card empty">
+      <div class="card-title">登入後就能加好友</div>
+      <p class="muted">互相看足跡、看朋友推薦的店家美食，也能選擇把即時位置分享給特定好友。</p>
+      <button type="button" class="btn-primary" id="frLogin" style="flex:none;align-self:center;padding:0 28px">登入或註冊</button>
+    </div>`;
+    ctx.$('frLogin').onclick = () => openAuth('signin');
+    return;
+  }
   const esc = ctx.esc;
   const cs = cloudState();
   let html = `<div class="card">
@@ -330,7 +347,6 @@ export function render() {
     <button type="button" class="btn-small primary" id="openAdmin">管理後台</button></div></div>` : ''}
   <div class="row" style="justify-content:center;gap:8px">
     <button type="button" class="btn-small" id="syncNow">立即同步</button>
-    <button type="button" class="btn-small" id="signOut">登出</button>
   </div>
   <p class="muted" style="text-align:center">「只有自己」的紀錄也會備份到雲端，但只有你看得到。</p>`;
   body.innerHTML = html;
@@ -423,7 +439,6 @@ function bindMain(body) {
   };
   if ($('openAdmin')) $('openAdmin').onclick = () => renderAdmin();
   $('syncNow').onclick = async () => { ctx.toast('同步中…'); await fullSync(); ctx.toast('同步完成'); };
-  $('signOut').onclick = async () => { await cloud.signOut(); ctx.toast('已登出，手機裡的資料都還在'); };
 }
 
 // ---------- 管理後台 ----------
@@ -499,35 +514,56 @@ async function renderAdmin() {
   };
 }
 
-function renderAuth(body) {
+// ---------- 入口：登入 / 註冊畫面 ----------
+export function openAuth(mode) {
+  if (!window.supabase) { ctx.toast('帳號功能載入失敗，請重新整理'); return; }
+  if (cloud.user) return;
+  authMode = mode || authMode;
+  ctx.$('authScreen').hidden = false;
+  renderAuth();
+}
+
+export function closeAuth() { const el = ctx.$('authScreen'); if (el) el.hidden = true; }
+
+export function account() { return cloud.user ? { name: me ? me.display_name : '', email: cloud.user.email || '' } : null; }
+
+export async function signOut() { await cloud.signOut(); ctx.toast('已登出，手機裡的資料都還在'); }
+
+function renderAuth() {
   const up = authMode === 'signup';
-  body.innerHTML = `<div class="card">
-    <div class="card-title">和朋友一起解開地圖</div>
-    <p class="muted" style="margin:0">登入後可以互相看足跡、看朋友記錄的店家和美食，也能選擇把即時位置分享給特定好友。資料會備份到雲端，換手機也不會不見。</p>
-  </div>
-  <div class="seg wide" role="group" aria-label="登入或註冊">
-    <button type="button" id="modeIn" class="${up ? '' : 'on'}" aria-pressed="${!up}">登入</button>
-    <button type="button" id="modeUp" class="${up ? 'on' : ''}" aria-pressed="${up}">註冊新帳號</button>
-  </div>
-  <form class="form card" id="authForm" novalidate>
-    ${up ? `<label class="field" for="aName"><span>名字（朋友會看到）</span><input id="aName" type="text" maxlength="30" autocomplete="nickname" placeholder="例如：小霧"></label>` : ''}
-    <label class="field" for="aEmail"><span>Email</span><input id="aEmail" type="text" inputmode="email" autocomplete="email" autocapitalize="off" placeholder="you@example.com"></label>
-    <label class="field" for="aPw"><span>密碼${up ? '（至少 6 個字元）' : ''}</span><input id="aPw" type="password" autocomplete="${up ? 'new-password' : 'current-password'}"></label>
-    <button type="submit" class="btn-primary" id="authBtn">${up ? '註冊' : '登入'}</button>
-    <p class="hint" id="authMsg"></p>
-  </form>
-  <div class="card">
-    <b>隱私承諾</b>
-    <span class="muted">・「只有自己」的紀錄，好友和其他人都看不到<br>・即時位置預設不分享，要一個一個好友打開<br>・可以設定住家保護區，家附近的足跡不會上傳<br>・足跡只記日期，不記幾點幾分</span>
-  </div>`;
+  const body = ctx.$('authBody');
+  body.innerHTML = `<div class="auth-brand">
+      <img src="icons/icon-192.png" alt="" width="64" height="64">
+      <h1>霧旅</h1>
+      <p>走過的地方，會從迷霧中解開</p>
+    </div>
+    <div class="seg wide" role="group" aria-label="登入或註冊">
+      <button type="button" id="modeUp" class="${up ? 'on' : ''}" aria-pressed="${up}">註冊新帳號</button>
+      <button type="button" id="modeIn" class="${up ? '' : 'on'}" aria-pressed="${!up}">登入</button>
+    </div>
+    <form class="form auth-form" id="authForm" novalidate>
+      ${up ? `<label class="field" for="aName"><span>名字（朋友會看到）</span><input id="aName" type="text" maxlength="30" autocomplete="nickname" placeholder="例如：小霧"></label>` : ''}
+      <label class="field" for="aEmail"><span>Email</span><input id="aEmail" type="text" inputmode="email" autocomplete="email" autocapitalize="off" placeholder="you@example.com"></label>
+      <label class="field" for="aPw"><span>密碼${up ? '（至少 6 個字元）' : ''}</span><input id="aPw" type="password" autocomplete="${up ? 'new-password' : 'current-password'}"></label>
+      <button type="submit" class="btn-primary" id="authBtn">${up ? '註冊並開始' : '登入'}</button>
+      <p class="hint" id="authMsg" role="status"></p>
+    </form>
+    <p class="auth-why">${up ? '有帳號就能備份足跡、換手機不怕不見，也能和朋友互相看足跡與推薦。' : '登入後會自動取回你雲端上的足跡和紀錄。'}</p>
+    <button type="button" class="auth-skip" id="authSkip">先不登入，直接開始</button>
+    <p class="auth-foot"><a href="about.html">霧旅是什麼？</a> · 「只有自己」的紀錄別人看不到，即時位置預設不分享</p>`;
   const $ = ctx.$;
-  $('modeIn').onclick = () => { authMode = 'signin'; renderAuth(body); };
-  $('modeUp').onclick = () => { authMode = 'signup'; renderAuth(body); };
+  $('modeIn').onclick = () => { authMode = 'signin'; renderAuth(); };
+  $('modeUp').onclick = () => { authMode = 'signup'; renderAuth(); };
+  $('authSkip').onclick = () => {
+    S().authSkipped = true; ctx.saveSettings(); closeAuth();
+    ctx.toast('之後想登入，到「徽章 › 設定」就能找到', 4000);
+  };
   $('authForm').onsubmit = async (e) => {
     e.preventDefault();
     const email = $('aEmail').value.trim(), pw = $('aPw').value;
     const msg = $('authMsg');
     if (!email || !pw) { msg.textContent = '請輸入 Email 和密碼'; return; }
+    if (up && pw.length < 6) { msg.textContent = '密碼至少要 6 個字元'; return; }
     $('authBtn').disabled = true;
     msg.textContent = up ? '註冊中…' : '登入中…';
     try {
@@ -536,9 +572,9 @@ function renderAuth(body) {
         const r = await cloud.signUp(email, pw, name);
         if (r.needConfirm) {
           authMode = 'signin';
-          renderAuth(body);
+          renderAuth();
           ctx.$('aEmail').value = email;
-          ctx.$('authMsg').textContent = '已寄出確認信。請到信箱點信裡的連結（打開的網頁如果顯示錯誤也沒關係），再回來這裡登入。';
+          ctx.$('authMsg').textContent = '已寄出確認信。請到信箱點信裡的連結，再回來這裡登入。';
         }
       } else {
         await cloud.signIn(email, pw);

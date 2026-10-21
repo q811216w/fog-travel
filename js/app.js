@@ -717,6 +717,7 @@ function renderBadges() {
   // 設定
   html += `<div class="group-label">設定與資料</div>
   <div class="card settings-list">
+    ${accountRow()}
     ${native ? bgRow() : ''}
     <div class="row"><div class="stack"><b>測試模式</b><span class="muted">在家也能試：點地圖就模擬走到那裡</span></div>
       <label class="switch"><input type="checkbox" id="testSw" ${state.settings.test ? 'checked' : ''} aria-label="測試模式"><i></i></label></div>
@@ -741,6 +742,9 @@ function renderBadges() {
     loadForeignFor(pts).then(() => { if (currentTab === 'badges' && toLoad.some((k) => admin1Of(k))) { fixForeign(true); renderBadges(); } });
   }
   $('testSw').onchange = (e) => setTest(e.target.checked);
+  if ($('acctIn')) $('acctIn').onclick = () => social.openAuth('signin');
+  if ($('acctUp')) $('acctUp').onclick = () => social.openAuth('signup');
+  if ($('acctOut')) $('acctOut').onclick = async () => { await social.signOut(); renderBadges(); };
   if ($('bgSw')) $('bgSw').onchange = (e) => { nativePost({ type: 'bg-set', on: e.target.checked }); };
   if ($('bgSettings')) $('bgSettings').onclick = () => nativePost({ type: 'open-settings' });
   $('demoBtn').onclick = () => { hasDemo() ? removeDemo() : loadDemo(); };
@@ -752,6 +756,16 @@ function renderBadges() {
     await store.clearAll();
     location.reload();
   };
+}
+
+function accountRow() {
+  const a = social.account();
+  if (a) {
+    return `<div class="row"><div class="stack"><b>帳號</b><span class="muted">${esc(a.name || '旅人')} · ${esc(a.email)}<br>足跡和紀錄會自動備份到雲端</span></div>
+      <button type="button" class="btn-small" id="acctOut">登出</button></div>`;
+  }
+  return `<div class="row"><div class="stack"><b>帳號</b><span class="muted">還沒登入：資料只存在這支手機，登入後就能備份、加好友</span></div>
+    <div class="row" style="gap:6px"><button type="button" class="btn-small" id="acctIn">登入</button><button type="button" class="btn-small primary" id="acctUp">註冊</button></div></div>`;
 }
 
 function bgRow() {
@@ -1269,6 +1283,7 @@ async function boot() {
     afterDataChange: () => { renderPins(); fog.redraw(); updateTop(); },
     map: () => map, fog: () => fog, getMyPos: () => myPos,
     currentTab: () => currentTab, setTab,
+    onAccountChange: () => { if (currentTab === 'badges') renderBadges(); },
     openSheetFor: (tab) => {
       currentTab = tab;
       for (const b of document.querySelectorAll('.tabbar button')) b.classList.toggle('on', b.dataset.tab === tab);

@@ -202,7 +202,7 @@ svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width:
 .field { display: flex; flex-direction: column; gap: 8px; border: 0; margin: 0; padding: 0; min-width: 0; }
 .field > span, .field legend { font-size: 13px; color: var(--ink-2); font-weight: 500; padding: 0; margin-bottom: 8px; }
 fieldset.field legend { margin-bottom: 8px; }
-.field input[type=text], .field textarea {
+.field input[type=text], .field input[type=password], .field textarea {
   width: 100%; border: 1px solid var(--line); border-radius: 12px; background: var(--paper-2);
   padding: 12px; font-size: 16px; min-height: 46px;
 }
@@ -286,3 +286,22 @@ select { font: inherit; min-height: 40px; border: 1px solid var(--line); border-
 .danger-text { color: #9E3A2A; border-color: #E2B8AC; }
 .admin-card { border-color: #BCD1E2; background: var(--sea-soft); }
 .bg-chip { background: var(--sea-soft); color: var(--sea); }
+
+/* 入口：登入 / 註冊 */
+.auth-screen {
+  position: fixed; inset: 0; z-index: 30; background: var(--paper); overflow-y: auto; -webkit-overflow-scrolling: touch;
+  padding: calc(env(safe-area-inset-top, 0px) + 28px) max(20px, env(safe-area-inset-right, 0px)) calc(env(safe-area-inset-bottom, 0px) + 28px) max(20px, env(safe-area-inset-left, 0px));
+  background-image: radial-gradient(ellipse 70% 40% at 20% 0%, rgba(170, 140, 100, 0.12), transparent 70%), radial-gradient(ellipse 60% 40% at 90% 100%, rgba(143, 181, 126, 0.12), transparent 70%);
+}
+.auth-body { max-width: 420px; margin: 0 auto; display: flex; flex-direction: column; gap: 18px; }
+.auth-brand { text-align: center; display: flex; flex-direction: column; align-items: center; gap: 6px; padding-block: 8px 6px; }
+.auth-brand img { width: 64px; height: 64px; border-radius: 18px; box-shadow: 0 6px 18px rgba(80, 60, 30, 0.2); }
+.auth-brand h1 { margin: 6px 0 0; font-family: var(--f-hand); font-size: 34px; }
+.auth-brand p { margin: 0; color: var(--ink-2); font-family: var(--f-hand); font-size: 17px; }
+.auth-form { background: var(--paper-2); border: 1px solid var(--line); border-radius: 18px; padding: 18px; }
+.auth-form .btn-primary { flex: none; width: 100%; }
+.auth-why { margin: 0; font-size: 13.5px; color: var(--ink-2); line-height: 1.6; text-align: center; }
+.auth-skip { align-self: center; min-height: 44px; padding: 0 18px; border: 0; background: none; color: var(--ink-2); font-size: 15px; text-decoration: underline; text-underline-offset: 4px; }
+.auth-foot { margin: 0; text-align: center; font-size: 12.5px; color: var(--ink-2); line-height: 1.6; }
+
+a { color: var(--clay); }
