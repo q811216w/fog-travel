@@ -246,3 +246,27 @@ export async function friendStamps(sinceId) {
   }
   return out;
 }
+
+// ---------- 管理員（營運管理）：只有統計、使用者清單和公開紀錄 ----------
+export async function amIAdmin() {
+  const { data, error } = await client().rpc('am_i_admin');
+  return !error && data === true;
+}
+
+async function rpcOrThrow(name, args) {
+  const { data, error } = await client().rpc(name, args || {});
+  if (error) {
+    if (/Could not find the function|does not exist/i.test(error.message)) throw new Error('這個管理功能還沒開放');
+    if (/cannot_self/.test(error.message)) throw new Error('不能對自己的帳號這樣做');
+    if (/not_admin/.test(error.message)) throw new Error('你沒有管理員權限');
+    throw new Error(zhError(error));
+  }
+  return data;
+}
+
+export const adminStats = () => rpcOrThrow('admin_stats');
+export const adminUsers = () => rpcOrThrow('admin_users');
+export const adminPublicRecords = () => rpcOrThrow('admin_public_records');
+export const adminSetDisabled = (id, disable) => rpcOrThrow('admin_set_disabled', { target_user: id, disable });
+export const adminDeleteUser = (id) => rpcOrThrow('admin_delete_user', { target_user: id });
+export const adminDeletePublicRecord = (uid, id) => rpcOrThrow('admin_delete_public_record', { target_user: uid, record_id: id });

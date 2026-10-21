@@ -15,6 +15,8 @@ const liveMarkers = new Map(), recMarkers = new Map();
 let syncing = false, lastPush = 0, lastLivePush = 0, timer = 0;
 let view = 'main';        // 好友頁目前顯示：main / friendRecords:<id> / record:<uid>:<id>
 let authMode = 'signin';
+let isAdmin = false;
+let adminArmed = null;
 let unfriendArmed = null;
 
 const S = () => ctx.state.settings;
@@ -33,7 +35,7 @@ export async function init(c) {
 async function onAuth(u, initial) {
   clearInterval(timer);
   if (!u) {
-    me = null; priv = null; net = { friends: [], incoming: [], outgoing: [] };
+    me = null; priv = null; isAdmin = false; net = { friends: [], incoming: [], outgoing: [] };
     fLive = []; fRecords = []; fStamps = new Map(); fStampMax = 0;
     drawFriendLayers();
     if (ctx.currentTab() === 'friends') render();
@@ -42,6 +44,7 @@ async function onAuth(u, initial) {
   try {
     me = await cloud.myProfile();
     priv = await cloud.getPrivate();
+    isAdmin = await cloud.amIAdmin();
   } catch (e) { ctx.toast(e.message); }
   const cs = cloudState();
   if (cs.uid !== u.id) { cs.uid = u.id; cs.stampsSynced = 0; cs.pulled = false; ctx.saveSettings(); }
@@ -323,6 +326,8 @@ export function render() {
     <div class="row"><div class="stack"><b>停止所有即時位置分享</b><span class="muted">關掉所有好友的開關，並刪除雲端上的位置</span></div>
       <button type="button" class="btn-small" id="stopLive">全部停止</button></div>
   </div>
+  ${isAdmin ? `<div class="card admin-card"><div class="row"><div class="stack"><b>管理員</b><span class="muted">查看使用者與統計、檢查公開紀錄</span></div>
+    <button type="button" class="btn-small primary" id="openAdmin">管理後台</button></div></div>` : ''}
   <div class="row" style="justify-content:center;gap:8px">
     <button type="button" class="btn-small" id="syncNow">立即同步</button>
     <button type="button" class="btn-small" id="signOut">登出</button>
@@ -416,8 +421,82 @@ function bindMain(body) {
   $('stopLive').onclick = async () => {
     try { await cloud.stopAllLive(); for (const f of net.friends) f.iShare = false; ctx.toast('已停止所有即時位置分享'); render(); } catch (err) { ctx.toast(err.message); }
   };
+  if ($('openAdmin')) $('openAdmin').onclick = () => renderAdmin();
   $('syncNow').onclick = async () => { ctx.toast('同步中…'); await fullSync(); ctx.toast('同步完成'); };
   $('signOut').onclick = async () => { await cloud.signOut(); ctx.toast('已登出，手機裡的資料都還在'); };
+}
+
+// ---------- 管理後台 ----------
+async function renderAdmin() {
+  view = 'admin';
+  const $ = ctx.$, esc = ctx.esc, body = $('sheetBody');
+  $('sheetTitle').textContent = '管理後台';
+  body.innerHTML = '<p class="muted" style="text-align:center;padding:30px 0">讀取中…</p>';
+  let stats, users, recs;
+  try {
+    [stats, users, recs] = await Promise.all([cloud.adminStats(), cloud.adminUsers(), cloud.adminPublicRecords()]);
+  } catch (e) {
+    body.innerHTML = `<button type="button" class="btn-ghost" id="adBack">回到好友</button><p class="muted">${esc(e.message)}</p>`;
+    $('adBack').onclick = () => render();
+    return;
+  }
+  if (view !== 'admin') return;
+  const fmtD = (t) => t ? new Date(t).toLocaleDateString('zh-TW') : '—';
+  let html = `<button type="button" class="btn-ghost" id="adBack">回到好友</button>
+  <div class="stats">
+    <div class="stat"><b>${stats.users}</b><small>使用者</small></div>
+    <div class="stat"><b>${stats.active7d}</b><small>7 天內上線</small></div>
+    <div class="stat"><b>${stats.new7d}</b><small>7 天內新註冊</small></div>
+    <div class="stat"><b>${Number(stats.stamps).toLocaleString()}</b><small>足跡點</small></div>
+    <div class="stat"><b>${stats.records}</b><small>紀錄（${stats.public_records} 公開）</small></div>
+    <div class="stat"><b>${stats.friendships}</b><small>好友關係</small></div>
+  </div>
+  <p class="hint">管理後台只顯示數量統計與公開內容；私人紀錄、即時位置、住家位置都看不到。</p>
+  <div class="group-label">使用者（${users.length}）</div>`;
+  for (const u of users) {
+    const self = u.id === cloud.user.id;
+    html += `<div class="card">
+      <div class="row"><div class="stack"><b>${esc(u.display_name || '旅人')}${u.is_admin ? ' <span class="tag cat-shop">管理員</span>' : ''}${u.disabled ? ' <span class="tag cat-food">已停用</span>' : ''}</b>
+        <span class="muted">${esc(u.email || '')}</span></div></div>
+      <span class="muted">註冊 ${fmtD(u.created_at)} · 最後上線 ${u.last_sign_in_at ? ago(u.last_sign_in_at) : '—'}</span>
+      <span class="muted">足跡 ${Number(u.stamps).toLocaleString()} 點 · 紀錄 ${u.records} 筆（公開 ${u.public_records}）· 好友 ${u.friends} 位</span>
+      ${self ? '' : `<div class="row" style="justify-content:flex-start;gap:8px">
+        <button type="button" class="btn-small" data-ad-disable="${u.id}" data-on="${u.disabled ? 0 : 1}">${u.disabled ? '恢復帳號' : '停用帳號'}</button>
+        <button type="button" class="btn-small danger-text" data-ad-del="${u.id}">${adminArmed === 'u' + u.id ? '確定刪除？無法復原' : '刪除帳號'}</button></div>`}
+    </div>`;
+  }
+  html += `<div class="group-label">公開紀錄（${recs.length}）</div>`;
+  if (!recs.length) html += '<p class="muted">目前沒有公開的紀錄。</p>';
+  for (const r of recs) {
+    const key = r.user_id + '|' + r.id;
+    html += `<div class="card">
+      <div class="row"><b>${esc(r.name)}</b><span class="tag cat-${r.cat}">${ctx.catOf(r.cat).label}</span></div>
+      ${r.note ? `<span class="rec-note">${esc(r.note)}</span>` : ''}
+      <span class="muted">${esc(r.author || '旅人')} · ${esc(ctx.regionLabel(r.c, r.k))} · ${fmtD(Number(r.t))}</span>
+      <button type="button" class="btn-small danger-text" data-ad-rec="${esc(key)}">${adminArmed === 'r' + key ? '確定刪除這筆？' : '刪除這筆紀錄'}</button>
+    </div>`;
+  }
+  const y = body.scrollTop;
+  body.innerHTML = html;
+  body.scrollTop = y;
+  $('adBack').onclick = () => { adminArmed = null; render(); };
+  for (const b of body.querySelectorAll('[data-ad-disable]')) b.onclick = async () => {
+    try { await cloud.adminSetDisabled(b.dataset.adDisable, b.dataset.on === '1'); ctx.toast(b.dataset.on === '1' ? '已停用帳號' : '已恢復帳號'); renderAdmin(); }
+    catch (e) { ctx.toast(e.message); }
+  };
+  for (const b of body.querySelectorAll('[data-ad-del]')) b.onclick = async () => {
+    const k = 'u' + b.dataset.adDel;
+    if (adminArmed !== k) { adminArmed = k; renderAdmin(); return; }
+    adminArmed = null;
+    try { await cloud.adminDeleteUser(b.dataset.adDel); ctx.toast('已刪除帳號'); renderAdmin(); } catch (e) { ctx.toast(e.message); renderAdmin(); }
+  };
+  for (const b of body.querySelectorAll('[data-ad-rec]')) b.onclick = async () => {
+    const k = 'r' + b.dataset.adRec;
+    if (adminArmed !== k) { adminArmed = k; renderAdmin(); return; }
+    adminArmed = null;
+    const [uid, id] = b.dataset.adRec.split('|');
+    try { await cloud.adminDeletePublicRecord(uid, id); ctx.toast('已刪除紀錄'); renderAdmin(); } catch (e) { ctx.toast(e.message); renderAdmin(); }
+  };
 }
 
 function renderAuth(body) {

@@ -728,7 +728,7 @@ function renderBadges() {
     <div class="row"><div class="stack"><b>清除所有資料</b><span class="muted">足跡、紀錄、照片都會刪除，無法復原</span></div>
       <button type="button" class="btn-small" id="clearBtn" style="color:#9E3A2A">清除</button></div>
   </div>
-  <p class="muted" style="text-align:center">霧旅 原型 v0.4 · 地圖資料 © OpenStreetMap 貢獻者、OpenFreeMap</p>`;
+  <p class="muted" style="text-align:center">霧旅 原型 v0.5 · 地圖資料 © OpenStreetMap 貢獻者、OpenFreeMap</p>`;
   body.innerHTML = html;
   for (const b of body.querySelectorAll('[data-expand]')) b.onclick = () => {
     const k = b.dataset.expand;
