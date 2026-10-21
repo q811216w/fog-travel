@@ -42,7 +42,7 @@ export function distM(a1, o1, a2, o2) {
   return 2 * R * Math.asin(Math.sqrt(s));
 }
 
-function stampKey(lat, lng, r) {
+export function stampKey(lat, lng, r) {
   return Math.round(lat * M_PER_DEG / (r * 0.4)) + ',' + Math.round(lng * M_PER_DEG * Math.cos(lat * Math.PI / 180) / (r * 0.4));
 }
 

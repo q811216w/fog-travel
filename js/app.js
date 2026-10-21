@@ -2,6 +2,7 @@ import * as store from './store.js';
 import { loadTaiwan, loadWorld, lookup, needWorld, taiwanCounties, TW_ORDER, loadAdmin1, admin1Of, admin1Count, worldReady, zhCountry } from './regions.js';
 import { pointsFromPhotos, pointsFromGpx, pointsFromKml, pointsFromTimelineJson } from './importer.js';
 import { tripImage } from './journal.js';
+import * as social from './social.js';
 import { state, reveal, revealPath, rebuild, serialize, load, km2, totalKm2, distM, homeRegion, computeTrips } from './model.js';
 import { createFog } from './fog.js';
 
@@ -329,6 +330,7 @@ function handleFix(lat, lng, acc, speed, t) {
   myPos = { a: lat, o: lng, acc, t };
   updateMe();
   if (acc > MAX_ACC) {
+    social.onPosition(myPos);
     updateTop(`GPS 訊號較弱（誤差約 ${Math.round(acc)} 公尺），到空曠處就會繼續解鎖`);
     return;
   }
@@ -351,6 +353,8 @@ function handleFix(lat, lng, acc, speed, t) {
   saveFogSoon();
   fog.redraw();
   updateTop();
+  social.onPosition(myPos);
+  social.stampsChanged();
 }
 
 function simulateWalk(lat, lng) {
@@ -369,6 +373,8 @@ function simulateWalk(lat, lng) {
   saveFogSoon();
   fog.redraw();
   updateTop();
+  social.onPosition(myPos);
+  social.stampsChanged();
 }
 
 async function requestWake() {
@@ -456,6 +462,7 @@ function renderSheet() {
   if (currentTab === 'records') renderRecords();
   else if (currentTab === 'trips') renderTrips();
   else if (currentTab === 'badges') renderBadges();
+  else if (currentTab === 'friends') social.render();
 }
 
 function recCard(r) {
@@ -721,7 +728,7 @@ function renderBadges() {
     <div class="row"><div class="stack"><b>清除所有資料</b><span class="muted">足跡、紀錄、照片都會刪除，無法復原</span></div>
       <button type="button" class="btn-small" id="clearBtn" style="color:#9E3A2A">清除</button></div>
   </div>
-  <p class="muted" style="text-align:center">霧旅 原型 v0.3 · 地圖資料 © OpenStreetMap 貢獻者、OpenFreeMap</p>`;
+  <p class="muted" style="text-align:center">霧旅 原型 v0.4 · 地圖資料 © OpenStreetMap 貢獻者、OpenFreeMap</p>`;
   body.innerHTML = html;
   for (const b of body.querySelectorAll('[data-expand]')) b.onclick = () => {
     const k = b.dataset.expand;
@@ -895,8 +902,10 @@ async function onSave(e) {
     vis: form.vis, a, o, c: reg.county, k: reg.country, photo,
     t: existing ? existing.t : Date.now(), demo: existing ? existing.demo : undefined
   };
+  rec.editedAt = Date.now();
   if (existing) Object.assign(existing, rec); else state.records.push(rec);
   await saveRecords();
+  social.recordChanged();
   // 記錄的地方也會解開迷霧
   if (!existing) { reveal(a, o, WALK_R, rec.t); saveFogSoon(); fog.redraw(); }
   renderPins();
@@ -914,6 +923,7 @@ async function onDelete() {
   state.records = state.records.filter((x) => x.id !== r.id);
   if (r.photo) store.deletePhoto(r.photo);
   await saveRecords();
+  social.recordDeleted(r);
   renderPins();
   closeForm();
   toast('已刪除');
@@ -948,6 +958,7 @@ async function revealPoints(points, linkPath) {
   updateTop();
   const gained = km2(state.cells.size - c0);
   announceFirsts(before);
+  social.stampsChanged();
   return gained;
 }
 
@@ -1147,6 +1158,7 @@ function bind() {
       updateMe();
       ensureWorld(myPos.a, myPos.o);
       updateTop();
+      social.onPosition(myPos);
       map.flyTo({ center: [myPos.o, myPos.a], zoom: 15.5, duration: 700 });
     }, (err) => {
       toast(err.code === 1 ? '沒有定位權限，請到 iPhone 設定允許 Safari 網站使用定位' : '暫時拿不到位置，請到戶外再試一次', 5000);
@@ -1181,6 +1193,18 @@ async function boot() {
   renderPins();
   updateTop();
   loadOutline();
+  social.init({
+    state, store, $, esc, toast, ICON, catOf, regionLabel, fmtDay,
+    saveSettings, saveRecords, saveFogNow,
+    afterDataChange: () => { renderPins(); fog.redraw(); updateTop(); },
+    map: () => map, fog: () => fog, getMyPos: () => myPos,
+    currentTab: () => currentTab, setTab,
+    openSheetFor: (tab) => {
+      currentTab = tab;
+      for (const b of document.querySelectorAll('.tabbar button')) b.classList.toggle('on', b.dataset.tab === tab);
+      $('sheet').hidden = false;
+    }
+  });
   if (!state.stamps.length && !state.records.length) {
     setTimeout(() => toast('歡迎！按「開始探索」走一走，或到「徽章 › 設定」載入範例、開啟測試模式', 6000), 900);
   }

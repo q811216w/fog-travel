@@ -216,6 +216,7 @@ export function createFog(map, getStamps) {
     g.fillRect(0, 0, T + 384, T + 384);
     g.restore();
     drawOverlay(g, z, x, y, ws, ox, oy);
+    drawFriends(g, z, x, y, ws, ox, oy);
     return c;
   }
 
@@ -335,6 +336,37 @@ export function createFog(map, getStamps) {
     g.restore();
   }
 
+  // ---- 好友的足跡：在迷霧上用每個人的顏色暈染出來 ----
+  let friends = [];   // [{color: [r,g,b], stamps: [{a,o,r}], bbox}]
+  function drawFriends(g, z, x, y, ws, ox, oy) {
+    if (!friends.length) return;
+    const W = unX(x * T - 40, ws), E = unX((x + 1) * T + 40, ws);
+    const N = unY(y * T - 40, ws), S = unY((y + 1) * T + 40, ws);
+    g.save();
+    g.globalCompositeOperation = 'source-atop';
+    for (const f of friends) {
+      const b = f.bbox;
+      if (!b || b[2] < W || b[0] > E || b[3] < S || b[1] > N) continue;
+      g.fillStyle = `rgba(${f.color.join(',')},0.34)`;
+      const seen = new Set();
+      g.beginPath();
+      for (const s of f.stamps) {
+        if (s.o < W || s.o > E || s.a < S || s.a > N) continue;
+        const mpp = 40075016.686 * Math.cos(s.a * Math.PI / 180) / ws;
+        const R = Math.max(1.8, s.r / mpp) * 1.05;
+        const px = mercX(s.o, ws) + ox, py = mercY(s.a, ws) + oy;
+        const gs = Math.max(1.5, R * 0.6);
+        const key = Math.round((px - ox) / gs) * 1000003 + Math.round((py - oy) / gs);
+        if (seen.has(key)) continue;
+        seen.add(key);
+        g.moveTo(px + R, py);
+        g.arc(px, py, R, 0, Math.PI * 2);
+      }
+      g.fill();
+    }
+    g.restore();
+  }
+
   function getTile(z, x, y, budget) {
     const key = z + '/' + x + '/' + y;
     let c = tiles.get(key);
@@ -397,6 +429,14 @@ export function createFog(map, getStamps) {
   return {
     redraw: schedule,
     setOverlay: (o) => { overlay = o; tiles.clear(); schedule(); },
+    setFriends: (list) => {
+      friends = list.map((f) => {
+        let minX = 180, minY = 90, maxX = -180, maxY = -90;
+        for (const s of f.stamps) { minX = Math.min(minX, s.o); maxX = Math.max(maxX, s.o); minY = Math.min(minY, s.a); maxY = Math.max(maxY, s.a); }
+        return { ...f, bbox: f.stamps.length ? [minX - 0.01, minY - 0.01, maxX + 0.01, maxY + 0.01] : null };
+      });
+      tiles.clear(); schedule();
+    },
     // 給效能測試用：立即畫一次並回傳花費的毫秒數
     drawNow: () => { const t = performance.now(); draw(); return performance.now() - t; },
     clearCache: () => { tiles.clear(); }
