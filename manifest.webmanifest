@@ -1,0 +1,15 @@
+{
+  "name": "霧旅",
+  "short_name": "霧旅",
+  "description": "走過的地方從迷霧中解開，記錄旅途中的店家、美食與私房地點。",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#F4EEE2",
+  "theme_color": "#F4EEE2",
+  "lang": "zh-Hant",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}

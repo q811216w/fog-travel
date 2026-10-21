@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>霧旅</title>
+<meta name="description" content="走過的地方從迷霧中解開，記錄旅途中的店家、美食與私房地點。">
+<meta name="theme-color" content="#F4EEE2">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="霧旅">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/icon-180.png">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=LXGW+WenKai+TC:wght@400;700&family=Noto+Sans+TC:wght@400;500;700&display=swap">
+<link rel="stylesheet" href="lib/maplibre-gl.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="map" aria-label="旅行迷霧地圖"></div>
+
+<header class="topcard" id="topcard">
+  <div class="topcard-row">
+    <div class="place" id="placeName">尚未定位</div>
+    <span class="chip" id="tripChip" hidden>旅程中</span>
+  </div>
+  <div class="topcard-main">
+    <div class="big" id="areaHere">0.00 km²</div>
+    <div class="sub" id="areaSub">按下「開始探索」後，走過的地方會從迷霧中解開</div>
+  </div>
+</header>
+
+<div class="test-banner" id="testBanner" hidden>測試模式：點地圖，模擬走到那裡</div>
+
+<div class="map-tools">
+  <div class="seg" role="group" aria-label="地圖風格">
+    <button type="button" id="modeReal" class="on" aria-pressed="true">寫實</button>
+    <button type="button" id="modePaint" aria-pressed="false">水彩</button>
+  </div>
+  <button type="button" class="round" id="btnLocate" aria-label="回到我的位置">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3.2"></circle><path d="M12 2v3M12 19v3M2 12h3M19 12h3"></path><circle cx="12" cy="12" r="7.5"></circle></svg>
+  </button>
+</div>
+
+<div class="actions" id="actions">
+  <button type="button" class="btn-explore" id="btnExplore">
+    <span class="dot" aria-hidden="true"></span><span id="exploreLabel">開始探索</span>
+  </button>
+  <button type="button" class="btn-record" id="btnRecord">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>記錄
+  </button>
+</div>
+
+<nav class="tabbar" aria-label="主選單">
+  <button type="button" data-tab="map" class="on">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6l6-2 6 2 6-2v14l-6 2-6-2-6 2z"></path><path d="M9 4v14M15 6v14"></path></svg>地圖</button>
+  <button type="button" data-tab="records">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21s-7-6.2-7-11.5A7 7 0 0 1 19 9.5C19 14.8 12 21 12 21z"></path><circle cx="12" cy="9.5" r="2.5"></circle></svg>紀錄</button>
+  <button type="button" data-tab="trips">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h11a3 3 0 0 1 3 3v13H8a3 3 0 0 1-3-3z"></path><path d="M9 8h6M9 12h6"></path></svg>旅程</button>
+  <button type="button" data-tab="badges">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="10" r="6"></circle><path d="M8.5 15L7 22l5-2.5L17 22l-1.5-7"></path></svg>徽章</button>
+</nav>
+
+<!-- 底部面板 -->
+<section class="sheet" id="sheet" hidden aria-live="polite">
+  <div class="sheet-head">
+    <h2 id="sheetTitle">紀錄</h2>
+    <button type="button" class="round small" id="sheetClose" aria-label="關閉">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg>
+    </button>
+  </div>
+  <div class="sheet-body" id="sheetBody"></div>
+</section>
+
+<!-- 新增紀錄 -->
+<section class="sheet form-sheet" id="formSheet" hidden>
+  <div class="sheet-head">
+    <h2 id="formTitle">新增紀錄</h2>
+    <button type="button" class="round small" id="formClose" aria-label="取消">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg>
+    </button>
+  </div>
+  <form class="sheet-body form" id="recForm" novalidate>
+    <fieldset class="field">
+      <legend>類別</legend>
+      <div class="chips" id="catChips"></div>
+    </fieldset>
+    <label class="field" for="fName"><span>名稱</span>
+      <input id="fName" name="name" type="text" maxlength="60" placeholder="例如：阿堂鹹粥" required autocomplete="off">
+    </label>
+    <fieldset class="field">
+      <legend>評分</legend>
+      <div class="stars" id="stars"></div>
+    </fieldset>
+    <label class="field" for="fPrice"><span>價格（可不填）</span>
+      <input id="fPrice" name="price" type="text" inputmode="decimal" maxlength="20" placeholder="例如：NT$120、¥800">
+    </label>
+    <label class="field" for="fNote"><span>筆記</span>
+      <textarea id="fNote" name="note" rows="3" maxlength="600" placeholder="吃了什麼、買了什麼、為什麼喜歡這裡"></textarea>
+    </label>
+    <div class="field">
+      <span>照片</span>
+      <div class="photo-row">
+        <label class="photo-pick" for="fPhoto">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4z"></path><circle cx="12" cy="13" r="3.5"></circle></svg>
+          <span id="photoLabel">拍照或選照片</span>
+        </label>
+        <input id="fPhoto" type="file" accept="image/*" class="visually-hidden">
+        <img id="photoPreview" alt="" hidden>
+      </div>
+    </div>
+    <fieldset class="field">
+      <legend>位置</legend>
+      <div class="seg wide" role="group" aria-label="位置">
+        <button type="button" id="locHere" class="on" aria-pressed="true">我目前的位置</button>
+        <button type="button" id="locCenter" aria-pressed="false">地圖中央</button>
+      </div>
+      <p class="hint" id="locHint"></p>
+    </fieldset>
+    <fieldset class="field">
+      <legend>誰看得到</legend>
+      <div class="chips" id="visChips"></div>
+      <p class="hint">好友功能會在下一版加入，現在先幫每筆紀錄設定好。</p>
+    </fieldset>
+    <div class="form-actions">
+      <button type="button" class="btn-ghost danger" id="btnDelete" hidden>刪除這筆</button>
+      <button type="submit" class="btn-primary" id="btnSave">儲存紀錄</button>
+    </div>
+  </form>
+</section>
+
+<div class="crosshair" id="crosshair" hidden aria-hidden="true"></div>
+<div class="toast" id="toast" role="status" hidden></div>
+
+<script src="lib/maplibre-gl.js"></script>
+<script type="module" src="js/app.js"></script>
+</body>
+</html>
