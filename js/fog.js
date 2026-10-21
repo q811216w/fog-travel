@@ -403,6 +403,8 @@ export function createFog(map, getStamps) {
     const x0 = Math.floor(left / T), x1 = Math.floor((left + w / scale) / T);
     const y0 = Math.floor(top / T), y1 = Math.floor((top + h / scale) / T);
     const n = Math.pow(2, zt) * 2;
+    // 每一格都要先清乾淨，否則上一格留下的紙色會蓋住已解開的地方
+    ctx.clearRect(0, 0, w, h);
     const budget = { n: 6 };
     let missing = false;
     ctx.imageSmoothingEnabled = true;
@@ -439,6 +441,13 @@ export function createFog(map, getStamps) {
     },
     // 給效能測試用：立即畫一次並回傳花費的毫秒數
     drawNow: () => { const t = performance.now(); draw(); return performance.now() - t; },
-    clearCache: () => { tiles.clear(); }
+    clearCache: () => { tiles.clear(); },
+    _debug: (lng, lat, z) => {
+      syncIndex();
+      const ws = 512 * Math.pow(2, z);
+      const x = Math.floor(mercX(lng, ws) / T), y = Math.floor(mercY(lat, ws) / T);
+      const arrs = stampsInTile(z, x, y);
+      return { x, y, buckets: buckets.size, found: arrs.reduce((n, a) => n + a.length, 0), stamps: getStamps().length };
+    }
   };
 }
