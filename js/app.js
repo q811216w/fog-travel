@@ -717,6 +717,7 @@ function renderBadges() {
   // 設定
   html += `<div class="group-label">設定與資料</div>
   <div class="card settings-list">
+    ${native ? bgRow() : ''}
     <div class="row"><div class="stack"><b>測試模式</b><span class="muted">在家也能試：點地圖就模擬走到那裡</span></div>
       <label class="switch"><input type="checkbox" id="testSw" ${state.settings.test ? 'checked' : ''} aria-label="測試模式"><i></i></label></div>
     <div class="row"><div class="stack"><b>範例資料</b><span class="muted">一趟台南小旅行的足跡與紀錄，隨時可以移除</span></div>
@@ -728,7 +729,7 @@ function renderBadges() {
     <div class="row"><div class="stack"><b>清除所有資料</b><span class="muted">足跡、紀錄、照片都會刪除，無法復原</span></div>
       <button type="button" class="btn-small" id="clearBtn" style="color:#9E3A2A">清除</button></div>
   </div>
-  <p class="muted" style="text-align:center">霧旅 原型 v0.5 · 地圖資料 © OpenStreetMap 貢獻者、OpenFreeMap</p>`;
+  <p class="muted" style="text-align:center">霧旅 v0.6 · 地圖資料 © OpenStreetMap 貢獻者、OpenFreeMap</p>`;
   body.innerHTML = html;
   for (const b of body.querySelectorAll('[data-expand]')) b.onclick = () => {
     const k = b.dataset.expand;
@@ -740,6 +741,8 @@ function renderBadges() {
     loadForeignFor(pts).then(() => { if (currentTab === 'badges' && toLoad.some((k) => admin1Of(k))) { fixForeign(true); renderBadges(); } });
   }
   $('testSw').onchange = (e) => setTest(e.target.checked);
+  if ($('bgSw')) $('bgSw').onchange = (e) => { nativePost({ type: 'bg-set', on: e.target.checked }); };
+  if ($('bgSettings')) $('bgSettings').onclick = () => nativePost({ type: 'open-settings' });
   $('demoBtn').onclick = () => { hasDemo() ? removeDemo() : loadDemo(); };
   $('expBtn').onclick = exportData;
   $('impFile').onchange = importData;
@@ -749,6 +752,18 @@ function renderBadges() {
     await store.clearAll();
     location.reload();
   };
+}
+
+function bgRow() {
+  const st = bgState || { enabled: false, background: 'undetermined', foreground: 'undetermined' };
+  let note;
+  if (st.enabled) note = '開啟中：手機放口袋也會記錄，打開霧旅時自動解開迷霧';
+  else if (st.background === 'denied' || (st.foreground === 'granted' && st.background !== 'granted' && st.background !== 'undetermined')) note = '需要把定位權限改成「永遠」：按「打開設定」› 位置 › 永遠';
+  else note = '打開後，iPhone 會詢問定位權限，請選「永遠允許」';
+  const needSettings = !st.enabled && st.background !== 'undetermined' && st.background !== 'granted';
+  return `<div class="row"><div class="stack"><b>背景自動記錄</b><span class="muted">${note}</span>
+      ${needSettings ? '<button type="button" class="btn-small" id="bgSettings" style="align-self:flex-start">打開設定</button>' : ''}</div>
+    <label class="switch"><input type="checkbox" id="bgSw" ${st.enabled ? 'checked' : ''} aria-label="背景自動記錄"><i></i></label></div>`;
 }
 
 function setTest(on) {
@@ -1175,6 +1190,61 @@ function bind() {
   $('fName').addEventListener('input', () => $('fName').removeAttribute('aria-invalid'));
 }
 
+// ---------- 在 iPhone app 裡：背景記錄 ----------
+const native = window.__fogNative || null;
+let bgState = null;
+let queueBusy = false;
+
+function nativePost(m) { if (native) native.post(m); }
+
+async function onNative(m) {
+  if (m.type === 'bg-state') {
+    bgState = m;
+    $('bgChip').hidden = !m.enabled;
+    if (m.enabled && /背景自動記錄/.test($('toast').textContent)) $('toast').hidden = true;
+    if (currentTab === 'badges') renderBadges();
+    if (!m.enabled && !state.settings.bgAsked) {
+      state.settings.bgAsked = true;
+      saveSettings();
+      setTimeout(() => toast('想讓手機放口袋也能自動解開迷霧？到「徽章 › 設定」打開「背景自動記錄」', 7000), 2500);
+    }
+  } else if (m.type === 'queue') {
+    if (queueBusy) return;
+    const pts = (m.points || []);
+    if (!pts.length) return;
+    queueBusy = true;
+    try {
+      const last = state.settings.lastQueueT || 0;
+      const fresh = pts.filter((p) => p.t > last).sort((a, b) => a.t - b.t);
+      if (fresh.length) {
+        await loadForeignFor(fresh);
+        const gained = await revealPoints(fresh.map((p) => ({ a: p.a, o: p.o, t: p.t })), true);
+        state.settings.lastQueueT = fresh[fresh.length - 1].t;
+        saveSettings();
+        const lp = fresh[fresh.length - 1];
+        if (Date.now() - lp.t < 10 * 60 * 1000) {
+          myPos = { a: lp.a, o: lp.o, acc: lp.acc || 30, t: lp.t };
+          updateMe();
+          social.onPosition(myPos);
+        }
+        if (gained > 0.0005) toast(`背景記錄幫你解開了 ${fmtKm2(gained)}`, 4000);
+      }
+      nativePost({ type: 'queue-ack', count: pts.length });
+    } finally {
+      queueBusy = false;
+    }
+  }
+}
+
+function initNative() {
+  if (!native) return;
+  window.__fogApp = { onNative };
+  for (const m of window.__fogPending || []) onNative(m);
+  window.__fogPending = [];
+  nativePost({ type: 'bg-get' });
+  nativePost({ type: 'queue-pull' });
+}
+
 // ---------- 啟動 ----------
 async function boot() {
   try { await loadTaiwan(BASE); } catch (e) { console.warn('county data', e); }
@@ -1205,6 +1275,7 @@ async function boot() {
       $('sheet').hidden = false;
     }
   });
+  initNative();
   if (!state.stamps.length && !state.records.length) {
     setTimeout(() => toast('歡迎！按「開始探索」走一走，或到「徽章 › 設定」載入範例、開啟測試模式', 6000), 900);
   }

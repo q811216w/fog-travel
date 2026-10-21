@@ -1,0 +1,59 @@
+{
+  "expo": {
+    "name": "霧旅",
+    "slug": "travel-fog",
+    "scheme": "travelfog",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "backgroundColor": "#F4EEE2",
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#F4EEE2"
+    },
+    "ios": {
+      "bundleIdentifier": "com.travelfog.app",
+      "buildNumber": "1",
+      "supportsTablet": false,
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false,
+        "NSLocationWhenInUseUsageDescription": "霧旅會用你的位置，解開你走過的地方的迷霧。",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "允許「永遠」後，手機放在口袋裡也會自動記錄足跡，打開霧旅時迷霧就已經解開了。位置只存在你的手機和你的帳號裡。",
+        "NSPhotoLibraryUsageDescription": "選擇照片來附在紀錄上，或用照片裡的位置補登足跡。",
+        "NSCameraUsageDescription": "拍照附在你的旅行紀錄上。",
+        "NSLocationAlwaysUsageDescription": "允許「永遠」後，手機放在口袋裡也會自動記錄足跡，打開霧旅時迷霧就已經解開了。位置只存在你的手機和你的帳號裡。"
+      }
+    },
+    "android": {
+      "package": "com.travelfog.app",
+      "versionCode": 1,
+      "adaptiveIcon": {
+        "backgroundColor": "#F4EEE2",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "permissions": [
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_BACKGROUND_LOCATION",
+        "FOREGROUND_SERVICE",
+        "FOREGROUND_SERVICE_LOCATION"
+      ],
+      "predictiveBackGestureEnabled": false
+    },
+    "plugins": [
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "允許「永遠」後，手機放在口袋裡也會自動記錄足跡，打開霧旅時迷霧就已經解開了。位置只存在你的手機和你的帳號裡。",
+          "locationWhenInUsePermission": "霧旅會用你的位置，解開你走過的地方的迷霧。",
+          "isIosBackgroundLocationEnabled": true,
+          "isAndroidBackgroundLocationEnabled": true,
+          "isAndroidForegroundServiceEnabled": true
+        }
+      ]
+    ]
+  }
+}
