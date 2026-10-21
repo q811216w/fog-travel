@@ -215,7 +215,124 @@ export function createFog(map, getStamps) {
     g.fillStyle = pattern;
     g.fillRect(0, 0, T + 384, T + 384);
     g.restore();
+    drawOverlay(g, z, x, y, ws, ox, oy);
     return c;
+  }
+
+  // ---- 拉遠時的「舊地圖」：迷霧上畫經緯線、國界，去過的國家和地區亮燈 ----
+  let overlay = null;   // {countries: [{name, g, bbox, lit, label}], regions: [{name, g, bbox, lit, label}]}
+  const HANDF = "'LXGW WenKai TC', 'Kaiti TC', serif";
+
+  function trace(g, geom, ws, ox, oy) {
+    const polys = geom.type === 'Polygon' ? [geom.coordinates] : geom.coordinates;
+    for (const p of polys) for (const ring of p) {
+      for (let i = 0; i < ring.length; i++) {
+        const px = mercX(ring[i][0], ws) + ox, py = mercY(ring[i][1], ws) + oy;
+        if (i === 0) g.moveTo(px, py); else g.lineTo(px, py);
+      }
+      g.closePath();
+    }
+  }
+
+  function label(g, text, lng, lat, ws, ox, oy, size, color) {
+    const px = mercX(lng, ws) + ox, py = mercY(lat, ws) + oy;
+    if (px < -120 || px > T + 120 || py < -30 || py > T + 30) return;
+    g.font = `700 ${size}px ${HANDF}`;
+    g.textAlign = 'center';
+    g.textBaseline = 'middle';
+    g.lineJoin = 'round';
+    g.lineWidth = 4;
+    g.strokeStyle = 'rgba(248,243,233,0.9)';
+    g.strokeText(text, px, py);
+    g.fillStyle = color;
+    g.fillText(text, px, py);
+  }
+
+  function drawOverlay(g, z, x, y, ws, ox, oy) {
+    if (!overlay) return;
+    const clamp = (v) => Math.max(0, Math.min(1, v));
+    const worldA = clamp((8 - z) / 2.5);              // z ≤ 5.5 完整，z 8 消失
+    const regA = Math.min(clamp((z - 3.5) / 1.5), clamp((12 - z) / 2.5));
+    const litA = clamp((6.2 - z) / 1.7);              // 國家整片亮燈只在拉很遠時，拉近就換成地區亮燈
+    if (worldA <= 0 && regA <= 0) return;
+    const pad = 2;
+    const W = unX(x * T - pad, ws), E = unX((x + 1) * T + pad, ws);
+    const N = unY(y * T - pad, ws), S = unY((y + 1) * T + pad, ws);
+    const hit = (b) => !(b[2] < W || b[0] > E || b[3] < S || b[1] > N);
+    g.save();
+    g.globalCompositeOperation = 'source-atop';   // 只畫在迷霧上，不蓋住已解開的地方
+
+    if (worldA > 0) {
+      // 經緯線
+      if (z <= 5) {
+        g.strokeStyle = `rgba(140,115,80,${0.16 * worldA})`;
+        g.lineWidth = 1;
+        g.setLineDash([3, 5]);
+        for (let lng = -180; lng <= 180; lng += 15) {
+          const px = mercX(lng, ws) + ox;
+          if (px < -1 || px > T + 1) continue;
+          g.beginPath(); g.moveTo(px, 0); g.lineTo(px, T); g.stroke();
+        }
+        for (let lat = -75; lat <= 75; lat += 15) {
+          const py = mercY(lat, ws) + oy;
+          if (py < -1 || py > T + 1) continue;
+          g.beginPath(); g.moveTo(0, py); g.lineTo(T, py); g.stroke();
+        }
+        g.setLineDash([]);
+      }
+      for (const c of overlay.countries) {
+        if (!hit(c.bbox)) continue;
+        g.beginPath();
+        trace(g, c.g, ws, ox, oy);
+        if (c.lit) {
+          if (litA > 0) {
+            g.shadowColor = `rgba(232,160,80,${0.75 * litA})`;
+            g.shadowBlur = 14;
+            g.fillStyle = `rgba(236,178,104,${0.55 * litA})`;
+            g.fill('evenodd');
+            g.shadowBlur = 0;
+          }
+          g.strokeStyle = `rgba(184,96,63,${0.85 * worldA})`;
+          g.lineWidth = 1.4;
+        } else {
+          g.fillStyle = `rgba(150,125,90,${0.07 * worldA})`;
+          g.fill('evenodd');
+          g.strokeStyle = `rgba(110,92,70,${0.42 * worldA})`;
+          g.lineWidth = 0.8;
+        }
+        g.stroke();
+      }
+    }
+
+    if (regA > 0 && overlay.regions.length) {
+      for (const r of overlay.regions) {
+        if (!hit(r.bbox)) continue;
+        g.beginPath();
+        trace(g, r.g, ws, ox, oy);
+        if (r.lit) {
+          g.fillStyle = `rgba(236,178,104,${0.42 * regA * (1 - litA)})`;
+          g.fill('evenodd');
+          g.strokeStyle = `rgba(184,96,63,${0.8 * regA})`;
+          g.lineWidth = 1.2;
+        } else {
+          g.strokeStyle = `rgba(110,92,70,${0.3 * regA})`;
+          g.lineWidth = 0.8;
+        }
+        g.stroke();
+      }
+    }
+    g.restore();
+
+    // 地名：去過的國家（拉遠時）、去過的地區（中間縮放）
+    g.save();
+    if (worldA > 0.3) {
+      const size = z <= 2 ? 12 : z <= 4 ? 15 : 18;
+      for (const c of overlay.countries) if (c.lit && c.label) label(g, c.zh, c.label[0], c.label[1], ws, ox, oy, size, '#A4502F');
+    }
+    if (regA > 0.5 && z >= 6.5) {
+      for (const r of overlay.regions) if (r.lit && r.label) label(g, r.name, r.label[0], r.label[1], ws, ox, oy, 14, '#A4502F');
+    }
+    g.restore();
   }
 
   function getTile(z, x, y, budget) {
@@ -279,6 +396,7 @@ export function createFog(map, getStamps) {
   resize();
   return {
     redraw: schedule,
+    setOverlay: (o) => { overlay = o; tiles.clear(); schedule(); },
     // 給效能測試用：立即畫一次並回傳花費的毫秒數
     drawNow: () => { const t = performance.now(); draw(); return performance.now() - t; },
     clearCache: () => { tiles.clear(); }

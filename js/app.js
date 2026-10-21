@@ -1,5 +1,5 @@
 import * as store from './store.js';
-import { loadTaiwan, loadWorld, lookup, needWorld, taiwanCounties, TW_ORDER, loadAdmin1, admin1Of, admin1Count, worldReady } from './regions.js';
+import { loadTaiwan, loadWorld, lookup, needWorld, taiwanCounties, TW_ORDER, loadAdmin1, admin1Of, admin1Count, worldReady, zhCountry } from './regions.js';
 import { pointsFromPhotos, pointsFromGpx, pointsFromKml, pointsFromTimelineJson } from './importer.js';
 import { tripImage } from './journal.js';
 import { state, reveal, revealPath, rebuild, serialize, load, km2, totalKm2, distM, homeRegion, computeTrips } from './model.js';
@@ -157,10 +157,15 @@ function initMap() {
     center, zoom,
     attributionControl: { compact: true },
     localIdeographFontFamily: "'PingFang TC', 'Noto Sans TC', 'Heiti TC', sans-serif",
+    minZoom: 1,
     pitchWithRotate: false,
     dragRotate: false
   });
   map.touchZoomRotate.disableRotation();
+  // 拉遠看世界時，先把紀錄圖釘藏起來，畫面比較乾淨
+  const pinVis = () => $('map').classList.toggle('far', map.getZoom() < 9);
+  map.on('zoom', pinVis);
+  pinVis();
   map.on('style.load', applyStyle);
   map.on('error', (e) => { if (e && e.error && /Failed to fetch|NetworkError/.test(String(e.error.message))) toast('地圖載入失敗，請確認網路連線'); });
   fog = createFog(map, () => state.stamps);
@@ -239,6 +244,64 @@ async function loadForeignFor(points) {
     const g = lookup(p.a, p.o);
     if (g.en && !seen.has(g.en)) { seen.add(g.en); await loadAdmin1(BASE, g.en); }
   }
+}
+
+// ---------- 拉遠時的世界地圖：去過的國家、地區亮燈 ----------
+let outline = null;
+let ovSig = '';
+
+function geomBbox(g) {
+  let minX = 180, minY = 90, maxX = -180, maxY = -90;
+  const polys = g.type === 'Polygon' ? [g.coordinates] : g.coordinates;
+  for (const p of polys) for (const [x, y] of p[0]) {
+    if (x < minX) minX = x; if (x > maxX) maxX = x;
+    if (y < minY) minY = y; if (y > maxY) maxY = y;
+  }
+  return [minX, minY, maxX, maxY];
+}
+
+// 地名放在面積最大那塊陸地的中央
+function labelPoint(g) {
+  const polys = g.type === 'Polygon' ? [g.coordinates] : g.coordinates;
+  let best = null, ba = -1;
+  for (const p of polys) {
+    const b = geomBbox({ type: 'Polygon', coordinates: p });
+    const a = (b[2] - b[0]) * (b[3] - b[1]);
+    if (a > ba) { ba = a; best = b; }
+  }
+  return best ? [(best[0] + best[2]) / 2, (best[1] + best[3]) / 2] : null;
+}
+
+async function loadOutline() {
+  if (outline) return;
+  try {
+    const arr = await (await fetch(BASE + 'data/world-outline.json')).json();
+    outline = arr.map((c) => ({ name: c.name, zh: zhCountry(c.name), g: c.g, bbox: geomBbox(c.g), label: labelPoint(c.g) }));
+  } catch (e) { return; }
+  updateOverlay(true);
+}
+
+function regionItems(list, lit) {
+  return list.map((r) => {
+    if (!r.label) r.label = labelPoint(r.g);
+    return { name: r.name, g: r.g, bbox: r.bbox || geomBbox(r.g), label: r.label, lit: lit(r.name) };
+  });
+}
+
+function updateOverlay(force) {
+  if (!fog || !fog.setOverlay) return;
+  const sig = [...state.byCountry.keys()].sort().join(',') + '|' + [...state.byCounty.keys()].sort().join(',') + '|' + admin1Count() + '|' + (outline ? 1 : 0);
+  if (!force && sig === ovSig) return;
+  ovSig = sig;
+  const has = (n) => state.byCounty.has(n);
+  let regions = regionItems(taiwanCounties(), has);
+  for (const k of state.byCountry.keys()) {
+    if (k === '台灣') continue;
+    const list = admin1Of(k);
+    if (list) regions = regions.concat(regionItems(list, has));
+  }
+  const countries = outline ? outline.map((c) => ({ ...c, lit: state.byCountry.has(c.zh) })) : [];
+  fog.setOverlay({ countries, regions });
 }
 
 // 地區面積：台灣用縣市資料，國外用該國的行政區資料
@@ -376,6 +439,7 @@ function updateTop(note) {
   const rk = reg ? (reg.county || reg.country) : null;
   const trips = computeTrips();
   $('tripChip').hidden = !(rk && home && rk !== home && trips[0] && trips[0].ongoing);
+  updateOverlay();
 }
 
 // ---------- 面板 ----------
@@ -657,7 +721,7 @@ function renderBadges() {
     <div class="row"><div class="stack"><b>清除所有資料</b><span class="muted">足跡、紀錄、照片都會刪除，無法復原</span></div>
       <button type="button" class="btn-small" id="clearBtn" style="color:#9E3A2A">清除</button></div>
   </div>
-  <p class="muted" style="text-align:center">霧旅 原型 v0.2 · 地圖資料 © OpenStreetMap 貢獻者、OpenFreeMap</p>`;
+  <p class="muted" style="text-align:center">霧旅 原型 v0.3 · 地圖資料 © OpenStreetMap 貢獻者、OpenFreeMap</p>`;
   body.innerHTML = html;
   for (const b of body.querySelectorAll('[data-expand]')) b.onclick = () => {
     const k = b.dataset.expand;
@@ -1116,6 +1180,7 @@ async function boot() {
   bind();
   renderPins();
   updateTop();
+  loadOutline();
   if (!state.stamps.length && !state.records.length) {
     setTimeout(() => toast('歡迎！按「開始探索」走一走，或到「徽章 › 設定」載入範例、開啟測試模式', 6000), 900);
   }

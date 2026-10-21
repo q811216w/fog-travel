@@ -193,6 +193,7 @@ svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width:
 .pin.cat-food { background: var(--clay); }
 .pin.cat-goods { background: var(--sage); }
 .pin.cat-private { background: var(--plum); }
+#map.far .pin { display: none; }
 .me { width: 22px; height: 22px; border-radius: 999px; background: var(--clay); border: 3px solid #fff; box-shadow: 0 0 0 8px rgba(184, 96, 63, 0.2), 0 2px 6px rgba(0, 0, 0, 0.25); }
 .me.weak { background: #9A8F80; box-shadow: 0 0 0 8px rgba(120, 110, 95, 0.2); }
 
