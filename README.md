@@ -6,8 +6,12 @@
 - 開始探索後，用手機定位即時解鎖（需保持畫面開啟）
 - 記錄店家、飲食、商品、私人地點，附照片、評分、價格與筆記
 - 離開常住地自動建立旅程
-- 國家徽章，台灣 22 縣市收集
+- 國家徽章，台灣 22 縣市收集；其他國家依一級行政區收集（日本都道府縣、韓國道、美國州…）
+- 補登足跡：從照片的位置、GPX / KML 軌跡、Google 地圖時間軸匯入
+- 旅程手帳分享圖
 
 所有足跡與紀錄只存在使用者自己的瀏覽器（IndexedDB），不會上傳。
 
-地圖資料 © OpenStreetMap 貢獻者，圖磚由 OpenFreeMap 提供。縣市邊界來自 taiwan-atlas（內政部國土測繪中心資料），國界來自 world-atlas（Natural Earth）。
+地圖資料 © OpenStreetMap 貢獻者，圖磚由 OpenFreeMap 提供。縣市邊界來自 taiwan-atlas（內政部國土測繪中心資料），國界來自 world-atlas，各國行政區來自 Natural Earth。
+
+開發：`npm test` 執行測試。

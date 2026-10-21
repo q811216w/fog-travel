@@ -62,14 +62,18 @@ function markCells(lat, lng, r, t, reg) {
   let added = 0;
   const dLat = CELL / M_PER_DEG;
   const iy0 = Math.floor(lat / dLat);
-  const n = Math.ceil(r / CELL);
+  const n = Math.ceil(r / CELL) + 1;
   for (let dy = -n; dy <= n; dy++) {
     const iy = iy0 + dy;
     const step = rowStep(iy);
     const ix0 = Math.floor(lng / step);
+    // 以格子中心到這個點的實際距離判斷，面積才會準
+    const my = ((iy + 0.5) * dLat - lat) * M_PER_DEG;
     for (let dx = -n; dx <= n; dx++) {
-      if ((dx * dx + dy * dy) * CELL * CELL > r * r) continue;
-      if (addCell(iy + ',' + (ix0 + dx), { t, c: reg.county, k: reg.country })) added++;
+      const ix = ix0 + dx;
+      const mx = ((ix + 0.5) * step - lng) / step * CELL;
+      if (mx * mx + my * my > r * r) continue;
+      if (addCell(iy + ',' + ix, { t, c: reg.county, k: reg.country })) added++;
     }
   }
   return added;
@@ -98,7 +102,7 @@ export function rebuild(keep) {
   state.byCounty = new Map();
   state.stampKeys = new Set();
   for (const s of stamps) {
-    if (!s.k) { const reg = lookup(s.a, s.o); s.c = reg.county; s.k = reg.country; }
+    if (!s.k || (!s.c && s.k !== '台灣')) { const reg = lookup(s.a, s.o); s.c = reg.county; s.k = reg.country; }
     state.stampKeys.add(stampKey(s.a, s.o, s.r));
     state.stamps.push(s);
     markCells(s.a, s.o, s.r, s.t, { county: s.c, country: s.k });
@@ -166,7 +170,8 @@ export function computeTrips() {
       if (dd < 1500 && q.t - p.t < 3600 * 1000) d += dd;
     }
     tr.km = d / 1000;
-    tr.records = state.records.filter((r) => r.t >= tr.start - 3600 * 1000 && r.t <= tr.end + 3600 * 1000);
+    // 這段時間內、而且記在這趟去過的地方的紀錄（在家記的不算進去）
+    tr.records = state.records.filter((r) => r.t >= tr.start - 3600 * 1000 && r.t <= tr.end + 3600 * 1000 && tr.regions.includes(r.c || r.k));
     let minA = 90, maxA = -90, minO = 180, maxO = -180;
     for (const s of tr.stamps) {
       minA = Math.min(minA, s.a); maxA = Math.max(maxA, s.a);

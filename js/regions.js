@@ -33,6 +33,37 @@ let tw = null;       // [{name, area, g, bbox}]
 let world = null;    // [{name, g, bbox}]
 let worldLoading = null;
 const cache = new Map();
+let admin1Index = null;          // 英文國名 -> 檔名
+const admin1 = new Map();        // 中文國名 -> [{name, area, g, bbox}]
+const admin1Loading = new Map();
+
+// 國外的一級行政區（日本都道府縣、韓國道、美國州…），進入該國才載入
+export async function loadAdmin1(base, enName) {
+  const zh = zhCountry(enName);
+  if (admin1.has(zh)) return admin1.get(zh);
+  if (admin1Loading.has(zh)) return admin1Loading.get(zh);
+  const p = (async () => {
+    try {
+      if (!admin1Index) admin1Index = await (await fetch(base + 'data/admin1/index.json')).json();
+      const file = admin1Index[enName];
+      if (!file) return null;
+      const arr = await (await fetch(base + 'data/admin1/' + file + '.json')).json();
+      const list = arr.map((r) => ({ ...r, bbox: bboxOf(r.g) }));
+      admin1.set(zh, list);
+      for (const [k, v] of cache) if (v.country === zh && !v.county) cache.delete(k);
+      return list;
+    } catch (e) {
+      admin1Loading.delete(zh);
+      return null;
+    }
+  })();
+  admin1Loading.set(zh, p);
+  return p;
+}
+
+export function admin1Of(zhName) { return admin1.get(zhName) || null; }
+export function admin1Count() { return admin1.size; }
+export function worldReady() { return !!world; }
 
 function bboxOf(g) {
   let minX = 180, minY = 90, maxX = -180, maxY = -90;
@@ -63,6 +94,32 @@ function inGeom(x, y, g) {
     }
   }
   return false;
+}
+
+function nearest(list, lat, lng, maxDeg) {
+  let best = null, bd = maxDeg * maxDeg;
+  const k = Math.cos(lat * Math.PI / 180);
+  for (const r of list) {
+    const b = r.bbox;
+    if (lng < b[0] - maxDeg || lng > b[2] + maxDeg || lat < b[1] - maxDeg || lat > b[3] + maxDeg) continue;
+    const polys = r.g.type === 'Polygon' ? [r.g.coordinates] : r.g.coordinates;
+    for (const p of polys) {
+      const ring = p[0];
+      for (let i = 1; i < ring.length; i++) {
+        // 點到邊界線段的距離（經度依緯度縮放）
+        const ax = (ring[i - 1][0] - lng) * k, ay = ring[i - 1][1] - lat;
+        const bx = (ring[i][0] - lng) * k, by = ring[i][1] - lat;
+        const dx = bx - ax, dy = by - ay;
+        const L = dx * dx + dy * dy;
+        let t = L ? -(ax * dx + ay * dy) / L : 0;
+        t = Math.max(0, Math.min(1, t));
+        const px = ax + t * dx, py = ay + t * dy;
+        const d = px * px + py * py;
+        if (d < bd) { bd = d; best = r.name; }
+      }
+    }
+  }
+  return best;
 }
 
 export async function loadTaiwan(base) {
@@ -101,7 +158,22 @@ export function lookup(lat, lng) {
     for (const c of world) {
       const b = c.bbox;
       if (lng < b[0] || lng > b[2] || lat < b[1] || lat > b[3]) continue;
-      if (inGeom(lng, lat, c.g)) { out = { country: zhCountry(c.name), county: null }; break; }
+      if (inGeom(lng, lat, c.g)) { out = { country: zhCountry(c.name), county: null, en: c.name }; break; }
+    }
+    // 港口、海岸邊：國界簡化後可能沒包到，改用約 8 公里內最近的國家
+    if (!out.country) {
+      const n = nearest(world, lat, lng, 0.08);
+      if (n) out = { country: zhCountry(n), county: null, en: n };
+    }
+    const subs = out.country ? admin1.get(out.country) : null;
+    if (subs) {
+      for (const r of subs) {
+        const b = r.bbox;
+        if (lng < b[0] || lng > b[2] || lat < b[1] || lat > b[3]) continue;
+        if (inGeom(lng, lat, r.g)) { out.county = r.name; break; }
+      }
+      // 海岸線附近，簡化過的邊界可能剛好沒包到：改找最近的地區（約 15 公里內）
+      if (!out.county) out.county = nearest(subs, lat, lng, 0.15);
     }
   }
   // 國外的結果要等世界國界載入後才快取

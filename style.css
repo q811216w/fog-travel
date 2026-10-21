@@ -155,6 +155,7 @@ svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width:
 .card-title { font-family: var(--f-hand); font-size: 19px; font-weight: 700; }
 .muted { color: var(--ink-2); font-size: 13px; line-height: 1.5; }
 .row { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-width: 0; }
+.settings-list .row > .stack { flex: 1; }
 .stack { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .group-label { font-size: 13px; color: var(--ink-2); font-weight: 500; margin-top: 4px; }
 .bar { height: 8px; border-radius: 999px; background: #E8DDCA; overflow: hidden; }
@@ -217,7 +218,7 @@ fieldset.field legend { margin-bottom: 8px; }
 .btn-primary { min-height: 50px; padding: 0 22px; border: 0; border-radius: 14px; background: var(--ink); color: var(--paper-2); font-size: 16px; font-weight: 500; flex: 1; }
 .btn-ghost { min-height: 50px; padding: 0 18px; border: 1px solid var(--line); border-radius: 14px; background: var(--paper-2); font-size: 15px; }
 .btn-ghost.danger { color: #9E3A2A; border-color: #E2B8AC; }
-.btn-small { min-height: 40px; padding: 0 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--paper-2); font-size: 14px; }
+.btn-small { white-space: nowrap; flex-shrink: 0; min-height: 40px; padding: 0 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--paper-2); font-size: 14px; }
 
 .crosshair { position: fixed; z-index: 6; left: 50%; top: 50%; width: 44px; height: 44px; margin: -22px 0 0 -22px; border: 2px solid var(--clay); border-radius: 999px; pointer-events: none; }
 .crosshair::after { content: ""; position: absolute; left: 50%; top: 50%; width: 6px; height: 6px; margin: -3px 0 0 -3px; border-radius: 999px; background: var(--clay); }
@@ -242,6 +243,10 @@ fieldset.field legend { margin-bottom: 8px; }
 .county.locked b { color: var(--ink-2); font-weight: 400; }
 .county.on { background: var(--clay-soft); border-color: #E3C2B1; }
 .county.on b { color: var(--clay); }
+.county.on.sea { background: var(--sea-soft); border-color: #BCD1E2; }
+.county.on.sea b { color: var(--sea); }
+.card > .btn-small { align-self: flex-start; }
+.journal-img { width: 100%; border-radius: 14px; box-shadow: var(--shadow); }
 
 .stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
 .stat { background: var(--paper-2); border: 1px solid var(--line); border-radius: 12px; padding: 10px 8px; display: flex; flex-direction: column; align-items: center; gap: 2px; }

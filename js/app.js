@@ -1,5 +1,7 @@
 import * as store from './store.js';
-import { loadTaiwan, loadWorld, lookup, needWorld, taiwanCounties, TW_ORDER } from './regions.js';
+import { loadTaiwan, loadWorld, lookup, needWorld, taiwanCounties, TW_ORDER, loadAdmin1, admin1Of, admin1Count, worldReady } from './regions.js';
+import { pointsFromPhotos, pointsFromGpx, pointsFromKml, pointsFromTimelineJson } from './importer.js';
+import { tripImage } from './journal.js';
 import { state, reveal, revealPath, rebuild, serialize, load, km2, totalKm2, distM, homeRegion, computeTrips } from './model.js';
 import { createFog } from './fog.js';
 
@@ -38,6 +40,7 @@ const pinMarkers = new Map();
 let currentTab = 'map';
 let recFilter = 'all';
 let clearArmed = false;
+const expandedCountries = new Set();
 
 // ---------- 格式 ----------
 function fmtKm2(v) {
@@ -161,6 +164,7 @@ function initMap() {
   map.on('style.load', applyStyle);
   map.on('error', (e) => { if (e && e.error && /Failed to fetch|NetworkError/.test(String(e.error.message))) toast('地圖載入失敗，請確認網路連線'); });
   fog = createFog(map, () => state.stamps);
+  if (location.search.includes('debug')) window.__app = { map, fog };
   map.on('click', (e) => {
     if (state.settings.test && !picking) simulateWalk(e.lngLat.lat, e.lngLat.lng);
   });
@@ -197,12 +201,52 @@ async function ensureWorld(lat, lng) {
   if (!needWorld(lat, lng)) return;
   const w = await loadWorld(BASE);
   if (!w) return;
-  // 國界剛載入：補上之前判斷不出國家的足跡
-  if (state.stamps.some((s) => !s.k)) {
-    rebuild();
-    saveFogSoon();
-    updateTop();
+  const reg = lookup(lat, lng);
+  if (reg.en) await loadAdmin1(BASE, reg.en);
+  fixForeign();
+}
+
+// 國界或某國的行政區剛載入：補上之前判斷不出地區的足跡和紀錄（同一批資料只做一次）
+let foreignVersion = '';
+function fixForeign(force) {
+  const v = (worldReady() ? 1 : 0) + ':' + admin1Count();
+  if (!force && v === foreignVersion) return;
+  foreignVersion = v;
+  const needs = (x) => !x.k || (!x.c && x.k !== '台灣' && admin1Of(x.k));
+  if (state.stamps.some(needs)) { rebuild(); saveFogSoon(); fog.redraw(); }
+  let changed = false;
+  for (const r of state.records) {
+    if (!needs(r)) continue;
+    const g = lookup(r.a, r.o);
+    if (g.country !== r.k || g.county !== r.c) { r.k = g.country; r.c = g.county; changed = true; }
   }
+  if (changed) { saveRecords(); }
+  updateTop();
+  if (currentTab === 'badges') renderBadges();
+}
+
+// 啟動或匯入後：載入所有到過國家的行政區
+async function loadForeignFor(points) {
+  const foreign = points.filter((p) => needWorld(p.a, p.o));
+  if (!foreign.length) return;
+  const w = await loadWorld(BASE);
+  if (!w) return;
+  const seen = new Set(), cells = new Set();
+  for (const p of foreign) {
+    const ck = Math.round(p.a * 20) + ',' + Math.round(p.o * 20);   // 約 5 公里檢查一次就夠
+    if (cells.has(ck)) continue;
+    cells.add(ck);
+    const g = lookup(p.a, p.o);
+    if (g.en && !seen.has(g.en)) { seen.add(g.en); await loadAdmin1(BASE, g.en); }
+  }
+}
+
+// 地區面積：台灣用縣市資料，國外用該國的行政區資料
+function regionArea(county, country) {
+  if (!county) return 0;
+  const list = country === '台灣' ? taiwanCounties() : admin1Of(country);
+  const info = list && list.find((c) => c.name === county);
+  return info ? info.area : 0;
 }
 
 function snapshotRegions() {
@@ -315,10 +359,10 @@ function updateTop(note) {
   if (reg && reg.county) {
     const v = state.byCounty.get(reg.county);
     const a = v ? km2(v.cells) : 0;
-    const info = taiwanCounties().find((c) => c.name === reg.county);
+    const area = regionArea(reg.county, reg.country);
     $('placeName').textContent = (myPos ? '' : '上次在 ') + regionLabel(reg.county, reg.country);
     $('areaHere').textContent = fmtKm2(a);
-    $('areaSub').textContent = note || `解開了${reg.county}的 ${fmtPct(info ? a / info.area * 100 : 0)} · 全部足跡 ${fmtKm2(total)}`;
+    $('areaSub').textContent = note || `解開了${reg.county}的 ${fmtPct(area ? a / area * 100 : 0)} · 全部足跡 ${fmtKm2(total)}`;
   } else if (reg && reg.country) {
     const v = state.byCountry.get(reg.country);
     $('placeName').textContent = (myPos ? '' : '上次在 ') + reg.country;
@@ -464,6 +508,15 @@ function renderTrips() {
     <div class="row"><div class="stack"><b>常住地</b><span class="muted">離開這裡就會自動算成一趟旅程</span></div>
     <select id="homeSel" aria-label="常住地">${opts}</select></div>
     <span class="muted">目前：${esc(home || '還沒有足跡')}${state.settings.home ? '' : (home ? '（依足跡最多的地方自動判斷）' : '')}</span>
+  </div>
+  <div class="card">
+    <div class="stack"><b>補登足跡</b><span class="muted">忘了開探索也沒關係：選旅途中拍的照片，會用照片裡的位置解開迷霧；也能匯入運動手錶、Strava 的 GPX，或 Google 地圖時間軸。</span></div>
+    <div class="row" style="justify-content:flex-start;gap:8px;flex-wrap:wrap">
+      <label class="btn-small" for="impPhotos" style="display:inline-flex;align-items:center;gap:6px;cursor:pointer"><svg viewBox="0 0 24 24" aria-hidden="true" style="width:18px;height:18px"><rect x="3" y="5" width="18" height="14" rx="2"></rect><circle cx="9" cy="10" r="2"></circle><path d="M21 16l-5-5-8 8"></path></svg>從照片補登</label>
+      <input type="file" id="impPhotos" accept="image/*,.heic,.heif" multiple class="visually-hidden">
+      <label class="btn-small" for="impTrack" style="display:inline-flex;align-items:center;gap:6px;cursor:pointer"><svg viewBox="0 0 24 24" aria-hidden="true" style="width:18px;height:18px"><path d="M4 18c3 0 3-6 6-6s3 4 6 4 3-8 4-10"></path></svg>匯入軌跡檔</label>
+      <input type="file" id="impTrack" accept=".gpx,.kml,.json,application/gpx+xml,application/json,application/vnd.google-earth.kml+xml" class="visually-hidden">
+    </div>
   </div>`;
   if (!trips.length) {
     html += `<div class="card empty">
@@ -486,6 +539,8 @@ function renderTrips() {
   });
   body.innerHTML = html;
   $('homeSel').onchange = (e) => { state.settings.home = e.target.value || null; saveSettings(); renderTrips(); updateTop(); };
+  $('impPhotos').onchange = importPhotos;
+  $('impTrack').onchange = importTrack;
   if ($('tripDemo')) $('tripDemo').onclick = loadDemo;
   for (const b of body.querySelectorAll('[data-trip]')) b.onclick = () => openTrip(trips[+b.dataset.trip]);
 }
@@ -505,8 +560,9 @@ function openTrip(tr) {
     </div>
     <div class="row" style="gap:10px">
       <button type="button" class="btn-ghost" style="flex:1" id="tBack">所有旅程</button>
-      <button type="button" class="btn-primary" id="tMap">在地圖上看</button>
+      <button type="button" class="btn-ghost" style="flex:1" id="tMap">在地圖上看</button>
     </div>
+    <button type="button" class="btn-primary" id="tJournal">做成手帳分享圖</button>
     <div class="group-label">這趟的紀錄（${tr.records.length}）</div>`;
   if (!tr.records.length) html += '<p class="muted">這趟還沒有紀錄。</p>';
   for (const r of tr.records.slice().sort((a, b) => a.t - b.t)) html += recCard(r);
@@ -514,6 +570,7 @@ function openTrip(tr) {
   $('sheetBody').scrollTop = 0;
   $('tBack').onclick = () => setTab('trips');
   $('tMap').onclick = () => { setTab('map'); map.fitBounds(tr.bounds, { padding: { top: 170, bottom: 190, left: 40, right: 40 }, maxZoom: 16, duration: 900 }); };
+  $('tJournal').onclick = () => openJournal(tr);
   bindRecClicks($('sheetBody'));
   fillThumbs($('sheetBody'));
 }
@@ -551,13 +608,34 @@ function renderBadges() {
     }
   }
   html += '</div></div>';
+  const toLoad = [];
   for (const [k, v] of others) {
+    const list = admin1Of(k);
+    const seenRegs = list ? list.filter((r) => state.byCounty.has(r.name)) : [];
+    if (!list) toLoad.push(k);
     html += `<div class="card"><div class="row" style="justify-content:flex-start;gap:14px">
       <div class="stamp" style="color:var(--sea)" aria-hidden="true">${esc(k.slice(0, 1))}</div>
       <div class="stack" style="flex:1">
-        <div class="row"><div class="card-title">${esc(k)}</div><span class="muted">${fmtKm2(km2(v.cells))}</span></div>
-        <span class="muted">第一次到訪 ${fmtDate(v.first, true)} · 城市收集會在之後的版本加入</span>
-      </div></div></div>`;
+        <div class="row"><div class="card-title">${esc(k)}</div><span class="muted">${list ? `地區 ${seenRegs.length} / ${list.length}` : fmtKm2(km2(v.cells))}</span></div>
+        ${list ? `<div class="bar" aria-hidden="true"><i style="width:${seenRegs.length / list.length * 100}%;background:var(--sea)"></i></div>` : ''}
+        <span class="muted">第一次到訪 ${fmtDate(v.first, true)} · ${fmtKm2(km2(v.cells))}</span>
+      </div></div>`;
+    if (list) {
+      const open = expandedCountries.has(k);
+      const sorted = seenRegs.slice().sort((a, b) => state.byCounty.get(b.name).cells - state.byCounty.get(a.name).cells);
+      const rest = list.filter((r) => !state.byCounty.has(r.name));
+      html += '<div class="county-grid">';
+      for (const r of sorted) {
+        const a = km2(state.byCounty.get(r.name).cells);
+        html += `<div class="county on sea"><b>${esc(r.name)}</b><small>${fmtKm2(a)} · ${fmtPct(r.area ? a / r.area * 100 : 0)}</small></div>`;
+      }
+      if (open) for (const r of rest) html += `<div class="county locked"><b>${esc(r.name)}</b><small>還在迷霧中</small></div>`;
+      html += '</div>';
+      if (rest.length) html += `<button type="button" class="btn-small" data-expand="${esc(k)}">${open ? '只看去過的' : `顯示其他 ${rest.length} 個地區`}</button>`;
+    } else {
+      html += '<span class="muted">正在載入地區資料…</span>';
+    }
+    html += '</div>';
   }
   if (!others.length) {
     html += `<div class="card dashed"><div class="row" style="justify-content:flex-start;gap:14px">
@@ -579,8 +657,17 @@ function renderBadges() {
     <div class="row"><div class="stack"><b>清除所有資料</b><span class="muted">足跡、紀錄、照片都會刪除，無法復原</span></div>
       <button type="button" class="btn-small" id="clearBtn" style="color:#9E3A2A">清除</button></div>
   </div>
-  <p class="muted" style="text-align:center">霧旅 原型 v0.1 · 地圖資料 © OpenStreetMap 貢獻者、OpenFreeMap</p>`;
+  <p class="muted" style="text-align:center">霧旅 原型 v0.2 · 地圖資料 © OpenStreetMap 貢獻者、OpenFreeMap</p>`;
   body.innerHTML = html;
+  for (const b of body.querySelectorAll('[data-expand]')) b.onclick = () => {
+    const k = b.dataset.expand;
+    if (expandedCountries.has(k)) expandedCountries.delete(k); else expandedCountries.add(k);
+    const y = body.scrollTop; renderBadges(); body.scrollTop = y;
+  };
+  if (toLoad.length) {
+    const pts = state.stamps.filter((s) => toLoad.includes(s.k));
+    loadForeignFor(pts).then(() => { if (currentTab === 'badges' && toLoad.some((k) => admin1Of(k))) { fixForeign(true); renderBadges(); } });
+  }
   $('testSw').onchange = (e) => setTest(e.target.checked);
   $('demoBtn').onclick = () => { hasDemo() ? removeDemo() : loadDemo(); };
   $('expBtn').onclick = exportData;
@@ -769,6 +856,116 @@ async function onDelete() {
   setTab('records');
 }
 
+// ---------- 補登足跡 ----------
+const nextFrame = () => new Promise((r) => requestAnimationFrame(() => r()));
+
+async function revealPoints(points, linkPath) {
+  const before = snapshotRegions();
+  const c0 = state.cells.size;
+  let prev = null;
+  for (let i = 0; i < points.length; i++) {
+    const p = points[i];
+    let done = false;
+    if (linkPath && prev) {
+      const dt = (p.t - prev.t) / 1000;
+      const d = distM(prev.a, prev.o, p.a, p.o);
+      if (dt > 0 && dt < 15 * 60 && d < 1500) {
+        const sp = d / dt;
+        if (sp <= MAX_SPEED) { revealPath(prev.a, prev.o, p.a, p.o, sp > 7 ? RIDE_R : WALK_R, prev.t, null, p.t); done = true; }
+        else done = true; // 太快的那段（飛機、高鐵）不解鎖
+      }
+    }
+    if (!done) reveal(p.a, p.o, WALK_R, p.t);
+    prev = p;
+    if (i % 1500 === 1499) { $('toast').textContent = `匯入中… ${Math.round(i / points.length * 100)}%`; $('toast').hidden = false; await nextFrame(); }
+  }
+  await saveFogNow();
+  fog.redraw();
+  updateTop();
+  const gained = km2(state.cells.size - c0);
+  announceFirsts(before);
+  return gained;
+}
+
+function fitPoints(points) {
+  if (!points.length) return;
+  let minA = 90, maxA = -90, minO = 180, maxO = -180;
+  for (const p of points) { minA = Math.min(minA, p.a); maxA = Math.max(maxA, p.a); minO = Math.min(minO, p.o); maxO = Math.max(maxO, p.o); }
+  setTab('map');
+  map.fitBounds([[minO, minA], [maxO, maxA]], { padding: { top: 170, bottom: 190, left: 40, right: 40 }, maxZoom: 15.5, duration: 900 });
+}
+
+async function importPhotos(e) {
+  const files = [...(e.target.files || [])];
+  e.target.value = '';
+  if (!files.length) return;
+  if (!window.exifr) { toast('照片讀取工具沒有載入，請重新整理再試'); return; }
+  toast(`讀取 ${files.length} 張照片中…`, 60000);
+  const { points, skipped } = await pointsFromPhotos(files, (i, n) => { if (i % 5 === 0) $('toast').textContent = `讀取照片 ${i} / ${n}`; });
+  if (!points.length) {
+    toast(`這 ${files.length} 張照片都沒有位置資訊。iPhone 選照片時，請在上方「選項」打開「位置」；或改從「檔案」App 選。`, 9000);
+    return;
+  }
+  await loadForeignFor(points);
+  const gained = await revealPoints(points, false);
+  toast(`從 ${points.length} 張照片解開了 ${fmtKm2(gained)}${skipped ? `，${skipped} 張沒有位置資訊` : ''}`, 6000);
+  fitPoints(points);
+}
+
+async function importTrack(e) {
+  const f = e.target.files && e.target.files[0];
+  e.target.value = '';
+  if (!f) return;
+  toast('讀取軌跡檔中…', 60000);
+  let points;
+  try {
+    const text = await f.text();
+    const name = f.name.toLowerCase();
+    if (name.endsWith('.gpx') || /<gpx[\s>]/i.test(text.slice(0, 2000))) points = pointsFromGpx(text);
+    else if (name.endsWith('.kml') || /<kml[\s>]/i.test(text.slice(0, 2000))) points = pointsFromKml(text);
+    else points = pointsFromTimelineJson(JSON.parse(text));
+  } catch (err) {
+    toast('讀不懂這個檔案：' + (err.message || '格式不支援') + '。支援 GPX、KML、Google 地圖時間軸 JSON。', 7000);
+    return;
+  }
+  if (!points.length) { toast('檔案裡找不到位置資料', 5000); return; }
+  await loadForeignFor(points);
+  const gained = await revealPoints(points, true);
+  toast(`匯入 ${points.length.toLocaleString()} 個位置點，解開了 ${fmtKm2(gained)}`, 6000);
+  fitPoints(points);
+}
+
+// ---------- 手帳分享圖 ----------
+let journalUrl = null;
+async function openJournal(tr) {
+  currentTab = 'journal';
+  $('sheetTitle').textContent = '手帳分享圖';
+  $('sheetBody').innerHTML = '<p class="muted" style="text-align:center;padding:40px 0">正在畫這趟旅程…</p>';
+  const blob = await tripImage(tr);
+  if (currentTab !== 'journal') return;
+  if (journalUrl) URL.revokeObjectURL(journalUrl);
+  journalUrl = URL.createObjectURL(blob);
+  const fname = `霧旅-${tr.regions[0] || '旅程'}-${fmtDate(tr.start, true).replace(/\//g, '')}.png`;
+  const file = new File([blob], fname, { type: 'image/png' });
+  const canShare = !!(navigator.canShare && navigator.canShare({ files: [file] }));
+  $('sheetBody').innerHTML = `
+    <img class="journal-img" src="${journalUrl}" alt="${esc(tr.regions.join('、'))}旅程手帳圖">
+    <p class="hint" style="text-align:center">也可以長按圖片，選「加入照片」存到相簿</p>
+    <div class="row" style="gap:10px">
+      <button type="button" class="btn-ghost" style="flex:1" id="jBack">回到旅程</button>
+      ${canShare ? '<button type="button" class="btn-primary" id="jShare">分享</button>' : '<button type="button" class="btn-primary" id="jSave">下載圖片</button>'}
+    </div>`;
+  $('jBack').onclick = () => openTrip(tr);
+  if ($('jShare')) $('jShare').onclick = async () => {
+    try { await navigator.share({ files: [file], title: tr.regions.join(' · ') }); } catch (err) { if (err && err.name !== 'AbortError') toast('分享失敗，可以改用長按圖片儲存'); }
+  };
+  if ($('jSave')) $('jSave').onclick = () => {
+    const a = document.createElement('a');
+    a.href = journalUrl; a.download = fname;
+    document.body.appendChild(a); a.click(); a.remove();
+  };
+}
+
 // ---------- 範例資料 ----------
 function hasDemo() { return state.records.some((r) => r.demo) || state.stamps.some((s) => s.d); }
 
@@ -909,9 +1106,8 @@ async function boot() {
   if (settings) Object.assign(state.settings, settings);
   load(await store.get('fog', null));
   state.records = await store.get('records', []);
-  if (state.stamps.some((s) => !s.k) || state.stamps.some((s) => needWorld(s.a, s.o))) {
-    loadWorld(BASE).then((w) => { if (w && state.stamps.some((s) => !s.k)) { rebuild(); saveFogSoon(); updateTop(); } });
-  }
+  const pts = state.stamps.concat(state.records);
+  if (pts.some((p) => needWorld(p.a, p.o))) loadForeignFor(pts).then(() => fixForeign(true));
   $('map').classList.toggle('paint', state.settings.mapMode === 'paint');
   $('modeReal').classList.toggle('on', state.settings.mapMode !== 'paint');
   $('modePaint').classList.toggle('on', state.settings.mapMode === 'paint');
